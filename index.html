@@ -254,14 +254,14 @@
           <div class="drop-icon">📷</div>
           <h2>ลากรูปภาพมาวางที่นี่</h2>
           <p>หรือคลิกเพื่อเลือกไฟล์</p>
-          <p class="file-info">รองรับ JPG, PNG และ WebP ขนาดไม่เกิน 15 MB</p>
+          <p class="file-info">รองรับ JPG, PNG, WebP และ HEIC (ภาพจาก iPhone) ขนาดไม่เกิน 30 MB</p>
         </div>
       </div>
 
       <input
         id="fileInput"
         type="file"
-        accept="image/jpeg,image/png,image/webp"
+        accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif"
       >
 
       <div id="status" class="status" aria-live="polite">
@@ -312,11 +312,20 @@
     const WASM_URL =
       "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm";
 
-    const MAX_FILE_SIZE = 15 * 1024 * 1024;
+    const HEIC_CONVERTER_URL =
+      "https://cdn.jsdelivr.net/npm/heic-to@1.5.2/dist/heic-to.js";
+
+    const MAX_FILE_SIZE = 30 * 1024 * 1024;
     const ALLOWED_TYPES = [
       "image/jpeg",
       "image/png",
       "image/webp"
+    ];
+    const HEIC_TYPES = [
+      "image/heic",
+      "image/heif",
+      "image/heic-sequence",
+      "image/heif-sequence"
     ];
 
     const dropZone = document.getElementById("dropZone");
@@ -406,12 +415,12 @@
         return "ไม่พบไฟล์ที่เลือก";
       }
 
-      if (!ALLOWED_TYPES.includes(file.type)) {
-        return "รองรับเฉพาะไฟล์ JPG, PNG และ WebP";
+      if (!ALLOWED_TYPES.includes(file.type) && !isHeicFile(file)) {
+        return "รองรับเฉพาะไฟล์ JPG, PNG, WebP และ HEIC";
       }
 
       if (file.size > MAX_FILE_SIZE) {
-        return "ไฟล์มีขนาดเกิน 15 MB";
+        return "ไฟล์มีขนาดเกิน 30 MB";
       }
 
       return null;
@@ -434,7 +443,7 @@
       resultSection.classList.remove("show");
 
       try {
-        const image = await createImageFromFile(file);
+        const image = await loadImage(file);
 
         /*
           ลดภาพที่มีขนาดใหญ่มากก่อนตรวจจับ เพื่อป้องกัน Canvas
@@ -467,6 +476,40 @@
         );
       } finally {
         fileInput.value = "";
+      }
+    }
+
+    /*
+      ภาพจาก iPhone มักเป็นไฟล์ HEIC และบางเบราว์เซอร์ (เช่น Windows)
+      ส่ง file.type มาเป็นค่าว่าง จึงต้องตรวจจากนามสกุลไฟล์ด้วย
+    */
+    function isHeicFile(file) {
+      return (
+        HEIC_TYPES.includes(file.type.toLowerCase()) ||
+        /\.(heic|heif)$/i.test(file.name)
+      );
+    }
+
+    async function loadImage(file) {
+      if (!isHeicFile(file)) {
+        return createImageFromFile(file);
+      }
+
+      // Safari เปิด HEIC ได้เอง จึงลองแบบปกติก่อน
+      try {
+        return await createImageFromFile(file);
+      } catch {
+        setStatus("กำลังแปลงไฟล์ HEIC จาก iPhone...", "loading");
+
+        const { heicTo } = await import(HEIC_CONVERTER_URL);
+        const jpegBlob = await heicTo({
+          blob: file,
+          type: "image/jpeg",
+          quality: 0.92
+        });
+
+        setStatus("กำลังวิเคราะห์รูปภาพ...", "loading");
+        return createImageFromFile(jpegBlob);
       }
     }
 
